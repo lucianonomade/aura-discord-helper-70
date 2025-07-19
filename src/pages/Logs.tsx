@@ -4,59 +4,54 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Activity, AlertCircle, CheckCircle, Info, XCircle } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle, Info, XCircle, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-const logs = [
-  {
-    id: 1,
-    type: "info",
-    event: "Bot Iniciado",
-    description: "Bot conectado ao Discord com sucesso",
-    timestamp: "2024-01-19 10:30:15",
-    user: "Sistema",
-    details: "Versão 1.0.0"
-  },
-  {
-    id: 2,
-    type: "success",
-    event: "Comando Executado",
-    description: "Usuário executou comando /rank",
-    timestamp: "2024-01-19 10:29:45",
-    user: "PlayerOne",
-    details: "Comando: /rank @PlayerOne"
-  },
-  {
-    id: 3,
-    type: "warning",
-    event: "Rate Limit",
-    description: "Usuário atingiu limite de comandos",
-    timestamp: "2024-01-19 10:28:30",
-    user: "SpamUser",
-    details: "5 comandos em 10 segundos"
-  },
-  {
-    id: 4,
-    type: "error",
-    event: "Erro de Conexão",
-    description: "Falha ao conectar com a API do Discord",
-    timestamp: "2024-01-19 10:27:12",
-    user: "Sistema",
-    details: "Timeout após 30 segundos"
-  },
-  {
-    id: 5,
-    type: "info",
-    event: "Membro Entrou",
-    description: "Novo membro se juntou ao servidor",
-    timestamp: "2024-01-19 10:25:00",
-    user: "NewUser123",
-    details: "ID: 789123456789"
-  }
-];
+interface BotLog {
+  id: string;
+  server_id: string;
+  level: string;
+  message: string;
+  metadata: any;
+  created_at: string;
+}
 
 const Logs = () => {
-  const getLogIcon = (type: string) => {
-    switch (type) {
+  const [logs, setLogs] = useState<BotLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  const fetchLogs = async () => {
+    try {
+      setLoading(true);
+      let query = supabase
+        .from('bot_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (filter !== "all") {
+        query = query.eq('level', filter);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      setLogs(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar logs:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getLogIcon = (level: string) => {
+    switch (level) {
       case "success": return <CheckCircle className="h-4 w-4 text-green-500" />;
       case "warning": return <AlertCircle className="h-4 w-4 text-yellow-500" />;
       case "error": return <XCircle className="h-4 w-4 text-red-500" />;
@@ -64,8 +59,8 @@ const Logs = () => {
     }
   };
 
-  const getLogBadgeVariant = (type: string) => {
-    switch (type) {
+  const getLogBadgeVariant = (level: string) => {
+    switch (level) {
       case "success": return "default";
       case "warning": return "secondary";
       case "error": return "destructive";
@@ -73,13 +68,13 @@ const Logs = () => {
     }
   };
 
-  const getLogTypeLabel = (type: string) => {
-    switch (type) {
+  const getLogTypeLabel = (level: string) => {
+    switch (level) {
       case "success": return "Sucesso";
       case "warning": return "Aviso";
       case "error": return "Erro";
       case "info": return "Info";
-      default: return type;
+      default: return level;
     }
   };
 
@@ -187,34 +182,53 @@ const Logs = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => (
-                  <TableRow key={log.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getLogIcon(log.type)}
-                        <Badge variant={getLogBadgeVariant(log.type)}>
-                          {getLogTypeLabel(log.type)}
-                        </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium">{log.event}</TableCell>
-                    <TableCell className="max-w-xs">
-                      <div className="truncate">{log.description}</div>
-                    </TableCell>
-                    <TableCell>{log.user}</TableCell>
-                    <TableCell className="text-sm">{log.timestamp}</TableCell>
-                    <TableCell className="max-w-xs">
-                      <div className="text-sm text-muted-foreground truncate">
-                        {log.details}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm">
-                        Ver Mais
-                      </Button>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+                      Carregando logs...
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : logs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      Nenhum log encontrado
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getLogIcon(log.level)}
+                          <Badge variant={getLogBadgeVariant(log.level)}>
+                            {getLogTypeLabel(log.level)}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium">{log.level}</TableCell>
+                      <TableCell className="max-w-xs">
+                        <div className="truncate">{log.message}</div>
+                      </TableCell>
+                      <TableCell>{log.server_id}</TableCell>
+                      <TableCell className="text-sm">
+                        {new Date(log.created_at).toLocaleString('pt-BR')}
+                      </TableCell>
+                      <TableCell className="max-w-xs">
+                        <div className="text-sm text-muted-foreground truncate">
+                          {log.metadata && typeof log.metadata === 'object' 
+                            ? JSON.stringify(log.metadata) 
+                            : log.metadata || '-'}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm">
+                          Ver Mais
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>

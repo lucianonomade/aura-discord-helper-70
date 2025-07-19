@@ -4,67 +4,89 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MessageSquare, Hash, AlertTriangle, Trash2 } from "lucide-react";
+import { MessageSquare, Hash, AlertTriangle, Trash2, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-const messages = [
-  {
-    id: 1,
-    user: "PlayerOne",
-    avatar: "/placeholder.svg",
-    content: "Alguém sabe como completar a quest do dragão?",
-    channel: "#geral",
-    timestamp: "10:30",
-    flags: [],
-    reactions: 3
-  },
-  {
-    id: 2,
-    user: "GamerPro",
-    avatar: "/placeholder.svg",
-    content: "Essa mensagem contém linguagem inadequada",
-    channel: "#gaming",
-    timestamp: "10:25",
-    flags: ["inappropriate"],
-    reactions: 0
-  },
-  {
-    id: 3,
-    user: "HelperBot",
-    avatar: "/placeholder.svg",
-    content: "Bem-vindo ao servidor! Leia as regras em #regras",
-    channel: "#welcome",
-    timestamp: "10:20",
-    flags: [],
-    reactions: 5
-  },
-  {
-    id: 4,
-    user: "SpamUser",
-    avatar: "/placeholder.svg",
-    content: "VENDA VENDA VENDA!!! CLIQUE AQUI!!!",
-    channel: "#geral",
-    timestamp: "10:15",
-    flags: ["spam", "suspicious"],
-    reactions: 0
-  }
-];
+interface Message {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
+  attachments: any;
+  members?: {
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+  channels?: {
+    name: string;
+  };
+}
 
 const Messages = () => {
-  const getFlagColor = (flag: string) => {
-    switch (flag) {
-      case "spam": return "destructive";
-      case "inappropriate": return "secondary";
-      case "suspicious": return "outline";
-      default: return "outline";
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    today: 0,
+    flagged: 0,
+    deleted: 0,
+    mostActiveChannel: ''
+  });
+
+  useEffect(() => {
+    fetchMessages();
+    fetchStats();
+  }, []);
+
+  const fetchMessages = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          members!messages_author_id_fkey(username, display_name, avatar_url),
+          channels!messages_channel_id_fkey(name)
+        `)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (error) throw error;
+      setMessages(data || []);
+    } catch (error) {
+      console.error('Erro ao buscar mensagens:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getFlagLabel = (flag: string) => {
-    switch (flag) {
-      case "spam": return "Spam";
-      case "inappropriate": return "Inapropriado";
-      case "suspicious": return "Suspeito";
-      default: return flag;
+  const fetchStats = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      const { count: todayCount } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', today);
+
+      const { count: deletedCount } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .not('deleted_at', 'is', null);
+
+      setStats({
+        today: todayCount || 0,
+        flagged: 0,
+        deleted: deletedCount || 0,
+        mostActiveChannel: '#geral'
+      });
+    } catch (error) {
+      console.error('Erro ao buscar estatísticas:', error);
     }
   };
 
@@ -85,9 +107,9 @@ const Messages = () => {
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">2,847</div>
+              <div className="text-2xl font-bold">{stats.today}</div>
               <p className="text-xs text-muted-foreground">
-                +12% desde ontem
+                Mensagens hoje
               </p>
             </CardContent>
           </Card>
@@ -98,7 +120,7 @@ const Messages = () => {
               <AlertTriangle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">23</div>
+              <div className="text-2xl font-bold">{stats.flagged}</div>
               <p className="text-xs text-muted-foreground">
                 Requer revisão
               </p>
@@ -111,9 +133,9 @@ const Messages = () => {
               <Trash2 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">45</div>
+              <div className="text-2xl font-bold">{stats.deleted}</div>
               <p className="text-xs text-muted-foreground">
-                Últimas 24h
+                Total deletadas
               </p>
             </CardContent>
           </Card>
@@ -124,9 +146,9 @@ const Messages = () => {
               <Hash className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">#geral</div>
+              <div className="text-2xl font-bold">{stats.mostActiveChannel}</div>
               <p className="text-xs text-muted-foreground">
-                1,245 mensagens
+                Canal principal
               </p>
             </CardContent>
           </Card>
@@ -153,52 +175,63 @@ const Messages = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {messages.map((message) => (
-                  <TableRow key={message.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={message.avatar} />
-                          <AvatarFallback>{message.user.slice(0, 2)}</AvatarFallback>
-                        </Avatar>
-                        <span className="font-medium">{message.user}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-xs">
-                      <div className="truncate">{message.content}</div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{message.channel}</Badge>
-                    </TableCell>
-                    <TableCell>{message.timestamp}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {message.flags.length === 0 ? (
-                          <Badge variant="outline">Normal</Badge>
-                        ) : (
-                          message.flags.map((flag, index) => (
-                            <Badge key={index} variant={getFlagColor(flag)}>
-                              {getFlagLabel(flag)}
-                            </Badge>
-                          ))
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{message.reactions}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm">
-                          Ver
-                        </Button>
-                        {message.flags.length > 0 && (
-                          <Button variant="destructive" size="sm">
-                            Deletar
-                          </Button>
-                        )}
-                      </div>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+                      Carregando mensagens...
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : messages.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      Nenhuma mensagem encontrada
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  messages.map((message) => (
+                    <TableRow key={message.id}>
+                      <TableCell>
+                        <div className="flex items-center space-x-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={message.members?.avatar_url || "/placeholder.svg"} />
+                            <AvatarFallback>
+                              {(message.members?.display_name || message.members?.username || 'U').slice(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium">
+                            {message.members?.display_name || message.members?.username || 'Usuário Desconhecido'}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-xs">
+                        <div className="truncate">{message.content}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">#{message.channels?.name || 'desconhecido'}</Badge>
+                      </TableCell>
+                      <TableCell>{new Date(message.created_at).toLocaleString('pt-BR')}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {message.deleted_at ? 'Deletada' : message.edited_at ? 'Editada' : 'Normal'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>-</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm">
+                            Ver
+                          </Button>
+                          {!message.deleted_at && (
+                            <Button variant="destructive" size="sm">
+                              Deletar
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </CardContent>

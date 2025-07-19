@@ -2,61 +2,90 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, Medal, Crown, Star, TrendingUp } from "lucide-react";
+import { Trophy, Medal, Crown, Star, TrendingUp, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+
+interface RankingUser {
+  rank: number;
+  member_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  level: number;
+  xp: number;
+  messages_count: number;
+}
 
 export function RankingPage() {
-  const topUsers = [
-    {
-      rank: 1,
-      username: "João#1234",
-      avatar: "/placeholder.svg",
-      level: 28,
-      xp: 45680,
-      nextLevelXp: 50000,
-      messages: 3420,
-      voiceTime: "145h 32m"
-    },
-    {
-      rank: 2,
-      username: "Maria#5678",
-      avatar: "/placeholder.svg",
-      level: 25,
-      xp: 38920,
-      nextLevelXp: 40000,
-      messages: 2890,
-      voiceTime: "98h 15m"
-    },
-    {
-      rank: 3,
-      username: "Pedro#9012",
-      avatar: "/placeholder.svg",
-      level: 23,
-      xp: 32450,
-      nextLevelXp: 35000,
-      messages: 2340,
-      voiceTime: "76h 42m"
-    },
-    {
-      rank: 4,
-      username: "Ana#3456",
-      avatar: "/placeholder.svg",
-      level: 21,
-      xp: 28790,
-      nextLevelXp: 30000,
-      messages: 2156,
-      voiceTime: "65h 28m"
-    },
-    {
-      rank: 5,
-      username: "Carlos#7890",
-      avatar: "/placeholder.svg",
-      level: 20,
-      xp: 25340,
-      nextLevelXp: 28000,
-      messages: 1987,
-      voiceTime: "54h 17m"
+  const [topUsers, setTopUsers] = useState<RankingUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalXp: 0,
+    activeUsers: 0,
+    averageLevel: 0
+  });
+
+  useEffect(() => {
+    fetchRanking();
+    fetchStats();
+  }, []);
+
+  const fetchRanking = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('member_xp')
+        .select(`
+          *,
+          members!member_xp_member_id_fkey(username, display_name, avatar_url)
+        `)
+        .order('xp', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      
+      const rankedUsers = (data || []).map((item, index) => ({
+        rank: index + 1,
+        member_id: item.member_id,
+        username: item.members?.username || 'Usuário',
+        display_name: item.members?.display_name,
+        avatar_url: item.members?.avatar_url,
+        level: item.level,
+        xp: item.xp,
+        messages_count: item.messages_count
+      }));
+
+      setTopUsers(rankedUsers);
+    } catch (error) {
+      console.error('Erro ao buscar ranking:', error);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
+
+  const fetchStats = async () => {
+    try {
+      const { data: xpData } = await supabase
+        .from('member_xp')
+        .select('xp, level');
+
+      if (xpData) {
+        const totalXp = xpData.reduce((sum, user) => sum + user.xp, 0);
+        const averageLevel = xpData.length > 0 
+          ? xpData.reduce((sum, user) => sum + user.level, 0) / xpData.length 
+          : 0;
+
+        setStats({
+          totalXp,
+          activeUsers: xpData.length,
+          averageLevel: Math.round(averageLevel * 10) / 10
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao buscar estatísticas:', error);
+    }
+  };
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -84,10 +113,11 @@ export function RankingPage() {
     }
   };
 
-  const getXpProgress = (currentXp: number, nextLevelXp: number) => {
-    const currentLevelBase = Math.floor(currentXp / 1000) * 1000;
+  const getXpProgress = (currentXp: number, level: number) => {
+    const currentLevelBase = level * 1000;
+    const nextLevelXp = (level + 1) * 1000;
     const progress = ((currentXp - currentLevelBase) / (nextLevelXp - currentLevelBase)) * 100;
-    return Math.min(progress, 100);
+    return Math.min(Math.max(progress, 0), 100);
   };
 
   return (
@@ -108,16 +138,16 @@ export function RankingPage() {
               </div>
               <div className="relative">
                 <Avatar className="w-16 h-16 mx-auto mb-2 border-2 border-primary/20">
-                  <AvatarImage src={user.avatar} alt={user.username} />
+                  <AvatarImage src={user.avatar_url || "/placeholder.svg"} alt={user.username} />
                   <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                    {user.username.split('#')[0].charAt(0).toUpperCase()}
+                    {(user.display_name || user.username).charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <Badge className={`absolute -top-1 -right-8 ${getRankColor(user.rank)} text-white border-0`}>
                   #{user.rank}
                 </Badge>
               </div>
-              <CardTitle className="text-lg text-foreground">{user.username}</CardTitle>
+              <CardTitle className="text-lg text-foreground">{user.display_name || user.username}</CardTitle>
               <CardDescription className="text-muted-foreground">Nível {user.level}</CardDescription>
             </CardHeader>
             <CardContent className="text-center">
@@ -126,9 +156,9 @@ export function RankingPage() {
                   <span className="text-muted-foreground">XP:</span>
                   <span className="text-foreground font-medium">{user.xp.toLocaleString()}</span>
                 </div>
-                <Progress value={getXpProgress(user.xp, user.nextLevelXp)} className="h-2" />
+                <Progress value={getXpProgress(user.xp, user.level)} className="h-2" />
                 <div className="text-xs text-muted-foreground">
-                  {user.xp.toLocaleString()} / {user.nextLevelXp.toLocaleString()} XP
+                  {user.xp.toLocaleString()} / {((user.level + 1) * 1000).toLocaleString()} XP
                 </div>
               </div>
             </CardContent>
@@ -154,29 +184,29 @@ export function RankingPage() {
                 </div>
                 
                 <Avatar className="w-10 h-10 border-2 border-primary/20">
-                  <AvatarImage src={user.avatar} alt={user.username} />
+                  <AvatarImage src={user.avatar_url || "/placeholder.svg"} alt={user.username} />
                   <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                    {user.username.split('#')[0].charAt(0).toUpperCase()}
+                    {(user.display_name || user.username).charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="font-medium text-foreground truncate">{user.username}</h3>
+                    <h3 className="font-medium text-foreground truncate">{user.display_name || user.username}</h3>
                     <Badge variant="secondary" className="text-xs">Nível {user.level}</Badge>
                   </div>
                   <div className="space-y-1">
-                    <Progress value={getXpProgress(user.xp, user.nextLevelXp)} className="h-1.5" />
+                    <Progress value={getXpProgress(user.xp, user.level)} className="h-1.5" />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>{user.xp.toLocaleString()} XP</span>
-                      <span>{user.nextLevelXp.toLocaleString()} XP</span>
+                      <span>{((user.level + 1) * 1000).toLocaleString()} XP</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="text-right space-y-1">
-                  <div className="text-sm text-foreground">{user.messages} mensagens</div>
-                  <div className="text-xs text-muted-foreground">{user.voiceTime} em voz</div>
+                  <div className="text-sm text-foreground">{user.messages_count} mensagens</div>
+                  <div className="text-xs text-muted-foreground">Membro ativo</div>
                 </div>
               </div>
             ))}
